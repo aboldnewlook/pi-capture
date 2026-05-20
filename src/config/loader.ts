@@ -50,26 +50,50 @@ function normalize(raw: Record<string, unknown>): CaptureConfig {
     throw new Error(`Unsupported backend: "${raw.backend}". Only "linear-cli" is supported in v0.1.`);
   }
 
-  const lin = (raw.linear ?? {}) as Record<string, unknown>;
-  if (!lin.initiative || typeof lin.initiative !== "string") {
-    throw new Error(`linear.initiative is required in ${CONFIG_PATH}`);
+  if (!raw.linear || typeof raw.linear !== "object") {
+    throw new Error(`linear config block is required when backend is "linear-cli"`);
   }
 
-  const rawLabels = (lin.labels ?? {}) as Record<string, unknown>;
-  const labels = {
-    ...DEFAULT_LABELS,
-    ...Object.fromEntries(
-      Object.entries(rawLabels).filter(([, v]) => typeof v === "string"),
-    ),
-  };
+  const lin = raw.linear as Record<string, unknown>;
+  if (!lin.initiative || typeof lin.initiative !== "string") {
+    throw new Error(`linear.initiative is required and must be a string`);
+  }
 
-  const rawPolicies = (raw.policies ?? {}) as Record<string, unknown>;
-  const policies = {
-    ...DEFAULT_POLICIES,
-    ...Object.fromEntries(
-      Object.entries(rawPolicies).filter(([, v]) => typeof v === "boolean"),
-    ),
-  };
+  const labels = { ...DEFAULT_LABELS };
+  if (lin.labels !== undefined) {
+    if (typeof lin.labels !== "object" || lin.labels === null) {
+      throw new Error(`linear.labels must be an object`);
+    }
+    const rawLabels = lin.labels as Record<string, unknown>;
+    const validKeys = Object.keys(DEFAULT_LABELS);
+    for (const [key, value] of Object.entries(rawLabels)) {
+      if (!validKeys.includes(key)) {
+        throw new Error(`Unknown label key "${key}". Valid keys: ${validKeys.join(", ")}`);
+      }
+      if (typeof value !== "string") {
+        throw new Error(`linear.labels.${key} must be a string, got ${typeof value}`);
+      }
+      (labels as Record<string, string>)[key] = value;
+    }
+  }
+
+  const policies = { ...DEFAULT_POLICIES };
+  if (raw.policies !== undefined) {
+    if (typeof raw.policies !== "object" || raw.policies === null) {
+      throw new Error(`policies must be an object`);
+    }
+    const rawPolicies = raw.policies as Record<string, unknown>;
+    const validKeys = Object.keys(DEFAULT_POLICIES);
+    for (const [key, value] of Object.entries(rawPolicies)) {
+      if (!validKeys.includes(key)) {
+        throw new Error(`Unknown policy key "${key}". Valid keys: ${validKeys.join(", ")}`);
+      }
+      if (typeof value !== "boolean") {
+        throw new Error(`policies.${key} must be a boolean, got ${typeof value}`);
+      }
+      (policies as Record<string, boolean>)[key] = value;
+    }
+  }
 
   return {
     backend: "linear-cli",
@@ -80,7 +104,12 @@ function normalize(raw: Record<string, unknown>): CaptureConfig {
       techDebtMilestone: typeof lin.techDebtMilestone === "string" ? lin.techDebtMilestone : "Tech Debt Y{YY} Q{Q}",
       labels,
     },
-    prompts: Array.isArray(raw.prompts) ? (raw.prompts as string[]).filter((p) => typeof p === "string") : [],
+    prompts: Array.isArray(raw.prompts)
+      ? (raw.prompts as unknown[]).map((p, i) => {
+          if (typeof p !== "string") throw new Error(`prompts[${i}] must be a string`);
+          return p;
+        })
+      : [],
     policies,
   };
 }

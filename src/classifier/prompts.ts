@@ -1,19 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import type { CaptureConfig } from "../config/types.ts";
 import type { ResolvedProject } from "../adapter/interface.ts";
 
-function safeRun(cmd: string): string {
-  try {
-    return execSync(cmd, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch {
-    return "";
-  }
-}
-
 function recentCommits(cwd: string): string {
-  const out = safeRun(`git -C ${JSON.stringify(cwd)} log --oneline -20`);
+  const result = spawnSync("git", ["-C", cwd, "log", "--oneline", "-20"], { encoding: "utf-8" });
+  if (result.error || result.status !== 0) return "";
+  const out = (result.stdout ?? "").trim();
   return out ? `Recent commits:\n${out}` : "";
 }
 

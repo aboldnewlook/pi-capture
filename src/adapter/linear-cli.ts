@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import type {
   IBackendAdapter,
   Issue,
@@ -11,8 +11,24 @@ import type { CaptureConfig } from "../config/types.ts";
 
 const LINEAR_CLI = process.env.LINEAR_CLI_PATH ?? "linear";
 
-function run(cmd: string): string {
-  return execSync(cmd, { encoding: "utf-8" }).trim();
+// Allows: hex slugs, TEAM-NNN codes, UUIDs, underscore. Rejects any shell-special chars.
+const SAFE_ID_RE = /^[A-Za-z0-9_-]+$/;
+export function assertSafeId(id: string, name: string): void {
+  if (!SAFE_ID_RE.test(id)) {
+    throw new Error(
+      `Invalid Linear ${name} "${id}": only alphanumeric, hyphens, and underscores allowed`,
+    );
+  }
+}
+
+function run(args: string[]): string {
+  const result = spawnSync(LINEAR_CLI, args, { encoding: "utf-8" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const msg = result.stderr?.trim();
+    throw new Error(msg || `${LINEAR_CLI} ${args[0]} exited with status ${result.status}`);
+  }
+  return (result.stdout ?? "").trim();
 }
 
 function resolveQuarterTokens(pattern: string, date: Date, prefix?: string): string {
@@ -25,14 +41,16 @@ function resolveQuarterTokens(pattern: string, date: Date, prefix?: string): str
 }
 
 export class LinearCliAdapter implements IBackendAdapter {
-  constructor(private readonly config: CaptureConfig) {
+  private readonly config: CaptureConfig;
+
+  constructor(config: CaptureConfig) {
+    this.config = config;
     this.assertInstalled();
   }
 
   private assertInstalled(): void {
-    try {
-      run(`${LINEAR_CLI} team list 2>&1 | head -1`);
-    } catch {
+    const result = spawnSync(LINEAR_CLI, ["team", "list"], { encoding: "utf-8" });
+    if (result.error || result.status !== 0) {
       throw new Error(
         `linear CLI not found or not authenticated.\n` +
         `Install: https://github.com/schpet/linear-cli\n` +
@@ -50,12 +68,11 @@ export class LinearCliAdapter implements IBackendAdapter {
 
     let output: string;
     try {
-      output = run(`${LINEAR_CLI} project list`);
+      output = run(["project", "list"]);
     } catch {
       return null;
     }
 
-    // Output format: SLUG  NAME  STATUS  ...
     for (const line of output.split("\n").slice(1)) {
       const cols = line.trim().split(/\s{2,}/);
       if (cols.length >= 2) {
@@ -73,6 +90,8 @@ export class LinearCliAdapter implements IBackendAdapter {
   async resolveMilestone(projectId: string, kind: MilestoneKind, name?: string): Promise<ResolvedMilestone | null> {
     if (kind === "none") return null;
 
+    assertSafeId(projectId, "projectId");
+
     const targetName = name ?? resolveQuarterTokens(
       this.config.linear.techDebtMilestone,
       new Date(),
@@ -81,8 +100,7 @@ export class LinearCliAdapter implements IBackendAdapter {
 
     let output: string;
     try {
-      // linear milestone list is unconfirmed in the CLI — fall back gracefully
-      output = run(`${LINEAR_CLI} milestone list ${projectId} 2>/dev/null`);
+      output = run(["milestone", "list", projectId]);
     } catch {
       return null;
     }
@@ -98,17 +116,12 @@ export class LinearCliAdapter implements IBackendAdapter {
       }
     }
 
-    // Tech Debt milestone may be auto-created per conservative policy
     if (kind === "tech-debt") {
       try {
-        const created = run(
-          `${LINEAR_CLI} milestone create --project ${projectId} --name ${JSON.stringify(targetName)}`,
-        );
-        // Expect "Created milestone: <id>" or similar
+        const created = run(["milestone", "create", "--project", projectId, "--name", targetName]);
         const match = created.match(/([a-f0-9-]{8,})/);
         if (match) return { id: match[1]!, name: targetName };
       } catch {
-        // Non-fatal — the agent prompt includes a fallback note
         return null;
       }
     }
@@ -117,32 +130,37 @@ export class LinearCliAdapter implements IBackendAdapter {
   }
 
   async createIssue(params: CreateIssueParams): Promise<string> {
-    const labelFlags = params.labels.map((l) => `--label ${JSON.stringify(l)}`).join(" ");
-    const milestoneFlag = params.milestoneId ? `--milestone ${params.milestoneId}` : "";
+    assertSafeId(params.projectId, "projectId");
 
-    const cmd = [
-      LINEAR_CLI,
-      "issue create",
-      `--project ${params.projectId}`,
-      `--title ${JSON.stringify(params.title)}`,
-      `--description ${JSON.stringify(params.body)}`,
-      labelFlags,
-      milestoneFlag,
-    ].filter(Boolean).join(" ");
+    const args = [
+      "issue", "create",
+      "--project", params.projectId,
+      "--title", params.title,
+      "--description", params.body,
+      "--no-interactive",
+    ];
 
-    const output = run(cmd);
-    // Expect "Created issue: ABNL-42\nhttps://..." or just the URL
+    for (const label of params.labels) {
+      args.push("--label", label);
+    }
+
+    if (params.milestoneId) {
+      assertSafeId(params.milestoneId, "milestoneId");
+      args.push("--milestone", params.milestoneId);
+    }
+
+    const output = run(args);
     const match = output.match(/([A-Z]+-\d+)/);
     if (!match) throw new Error(`Could not parse issue ID from: ${output}`);
     return match[1]!;
   }
 
   async listTriageQueue(projectId: string, triageLabel: string): Promise<Issue[]> {
+    assertSafeId(projectId, "projectId");
+
     let output: string;
     try {
-      output = run(
-        `${LINEAR_CLI} issue list --project ${projectId} --label ${JSON.stringify(triageLabel)}`,
-      );
+      output = run(["issue", "list", "--project", projectId, "--label", triageLabel]);
     } catch {
       return [];
     }
@@ -166,18 +184,25 @@ export class LinearCliAdapter implements IBackendAdapter {
   }
 
   async updateIssue(id: string, patch: Partial<Pick<Issue, "title" | "labels" | "milestoneId">>): Promise<void> {
-    const parts: string[] = [`${LINEAR_CLI} issue update ${id}`];
-    if (patch.title) parts.push(`--title ${JSON.stringify(patch.title)}`);
-    if (patch.milestoneId) parts.push(`--milestone ${patch.milestoneId}`);
-    run(parts.join(" "));
+    assertSafeId(id, "issueId");
+
+    const args = ["issue", "update", id];
+    if (patch.title) args.push("--title", patch.title);
+    if (patch.milestoneId) {
+      assertSafeId(patch.milestoneId, "milestoneId");
+      args.push("--milestone", patch.milestoneId);
+    }
+    run(args);
   }
 
   async addLabel(id: string, label: string): Promise<void> {
-    run(`${LINEAR_CLI} issue update ${id} --add-label ${JSON.stringify(label)}`);
+    assertSafeId(id, "issueId");
+    run(["issue", "update", id, "--add-label", label]);
   }
 
   async removeLabel(id: string, label: string): Promise<void> {
-    run(`${LINEAR_CLI} issue update ${id} --remove-label ${JSON.stringify(label)}`);
+    assertSafeId(id, "issueId");
+    run(["issue", "update", id, "--remove-label", label]);
   }
 }
 

@@ -34,7 +34,8 @@
   ],
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "lint": "tsc --noEmit --strict"
+    "lint": "tsc --noEmit",
+    "build": "tsc --noEmit"
   },
   "pi": {
     "extensions": [
@@ -60,7 +61,8 @@
       "optional": true
     }
   },
-  "dependencies": {
-    "typebox": "^1.1.24"
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "typescript": "^5.5.0"
   }
 }

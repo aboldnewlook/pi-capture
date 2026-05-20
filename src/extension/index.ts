@@ -12,11 +12,11 @@ import {
 async function resolveContext(config: CaptureConfig, cwd: string): Promise<PromptContext> {
   let project = null;
   if (config.backend === "linear-cli") {
+    const adapter = new LinearCliAdapter(config); // throws loudly if CLI missing or unauthed
     try {
-      const adapter = new LinearCliAdapter(config);
       project = await adapter.resolveProject();
     } catch {
-      // Non-fatal: the agent resolves project from prompt instructions
+      // project resolution is non-fatal — agent falls back to projectPattern in prompt
     }
   }
   return { config, cwd, project };

@@ -4,7 +4,7 @@
   "title": "pi-capture config",
   "description": "Per-repo configuration for the pi-capture extension (.pi/pi-capture.json)",
   "type": "object",
-  "required": ["backend"],
+  "required": ["backend", "linear"],
   "additionalProperties": false,
   "properties": {
     "backend": {
