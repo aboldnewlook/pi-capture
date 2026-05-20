@@ -1,0 +1,66 @@
+{
+  "name": "pi-capture",
+  "version": "0.1.0",
+  "description": "Pi extension for capturing and triaging issues into Linear (or other backends) from the agent conversation",
+  "author": "aboldnewlook",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aboldnewlook/pi-capture.git"
+  },
+  "homepage": "https://github.com/aboldnewlook/pi-capture#readme",
+  "bugs": {
+    "url": "https://github.com/aboldnewlook/pi-capture/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "linear",
+    "issue-capture",
+    "triage"
+  ],
+  "bin": {
+    "pi-capture": "install.mjs"
+  },
+  "files": [
+    "src/**/*.ts",
+    "*.mjs",
+    "skills/**/*",
+    "pi-capture.schema.json",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "lint": "tsc --noEmit --strict"
+  },
+  "pi": {
+    "extensions": [
+      "./src/extension/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-agent-core": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "typebox": "^1.1.24"
+  }
+}

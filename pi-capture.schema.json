@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/aboldnewlook/pi-capture/pi-capture.schema.json",
+  "title": "pi-capture config",
+  "description": "Per-repo configuration for the pi-capture extension (.pi/pi-capture.json)",
+  "type": "object",
+  "required": ["backend"],
+  "additionalProperties": false,
+  "properties": {
+    "backend": {
+      "type": "string",
+      "enum": ["linear-cli"],
+      "description": "Which issue-tracking backend to use. Only 'linear-cli' is implemented in v0.1."
+    },
+    "linear": {
+      "type": "object",
+      "description": "Settings for the linear-cli backend.",
+      "required": ["initiative"],
+      "additionalProperties": false,
+      "properties": {
+        "initiative": {
+          "type": "string",
+          "description": "Linear initiative slug (the part after the last '-' in the initiative URL, e.g. '7f9450f97e50')."
+        },
+        "projectPattern": {
+          "type": "string",
+          "default": "[XX] Y{YY} Q{Q}",
+          "description": "Pattern for current-quarter project names. {YY} = 2-digit year, {Q} = quarter (1-4), {XX} = prefix."
+        },
+        "projectPrefix": {
+          "type": "string",
+          "description": "The prefix token that replaces {XX} in projectPattern (e.g. 'BC' → '[BC] Y26 Q3')."
+        },
+        "techDebtMilestone": {
+          "type": "string",
+          "default": "Tech Debt Y{YY} Q{Q}",
+          "description": "Name pattern for the rolling Tech Debt milestone. Same tokens as projectPattern."
+        },
+        "labels": {
+          "type": "object",
+          "description": "Mapping of semantic label kinds to the actual Linear label names configured in your workspace.",
+          "additionalProperties": false,
+          "properties": {
+            "bug":      { "type": "string", "default": "bug" },
+            "techDebt": { "type": "string", "default": "tech-debt" },
+            "feature":  { "type": "string", "default": "feature" },
+            "specGap":  { "type": "string", "default": "spec-gap" },
+            "triage":   { "type": "string", "default": "needs-triage" },
+            "ownerReview": { "type": "string", "default": "owner-review" }
+          }
+        }
+      }
+    },
+    "prompts": {
+      "type": "array",
+      "description": "Paths to markdown files containing project-specific classifier instructions. Loaded and appended to every capture prompt. Paths are relative to the repo root.",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "policies": {
+      "type": "object",
+      "description": "Controls what the async worker may do autonomously.",
+      "additionalProperties": false,
+      "properties": {
+        "asyncMayCreateMilestone": {
+          "type": "boolean",
+          "default": false,
+          "description": "When false (default), async capture NEVER creates milestones except the rolling Tech Debt one. Milestone proposals go into the issue body as a checklist item."
+        },
+        "asyncMayStubSpec": {
+          "type": "boolean",
+          "default": false,
+          "description": "When false (default), async capture NEVER creates spec stub files. Spec proposals go into the issue body as a checklist item."
+        },
+        "asyncMayCreateLabels": {
+          "type": "boolean",
+          "default": false,
+          "description": "When false (default), async capture NEVER creates new Linear labels. It uses only the labels listed in the 'labels' config."
+        }
+      }
+    }
+  }
+}
