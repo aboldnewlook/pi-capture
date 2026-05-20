@@ -93,28 +93,40 @@ Imperative, concise, no trailing period. Examples:
 
 ## How it works
 
-Each command loads `.pi/pi-capture.json`, pre-fetches the current-quarter Linear project (via the `linear` CLI), reads recent git commits and specs layout for context, and injects a structured prompt into the Pi conversation via `pi.sendUserMessage()`. The Pi agent then executes the prompt using its available tools (including the `linear` CLI via bash).
+Each command loads `.pi/pi-capture.json`, builds a small task prompt (workflow scaffolding + structured Linear config + paths to project-specific guidance files), and dispatches it into a **forked subagent context** via the `pi-subagents` slash bridge (`SLASH_SUBAGENT_REQUEST_EVENT` on `pi.events`). The orchestrator session stays clean — only the classification proposal (or, for `:async`, the final ABNL-NN) crosses the boundary.
+
+### Reference-not-inline prompt passing
+
+The extension does **not** read the `prompts: [...]` files itself. Instead, the dispatched task includes the file *paths* and a directive telling the subagent to read them lazily (via its Read tool) before classifying. This keeps dispatched task size bounded (~1-2 KB) regardless of how big project guidance grows, and lets the subagent follow internal references (e.g. AGENTS.md sections, ADR index, spec directories) the guidance file mentions.
+
+The structured Linear config block (labels, project pattern, milestone pattern) stays inlined — it's small and the subagent needs it for CLI arguments.
 
 ### `/capture` (interactive)
 
-1. Agent classifies the issue.
-2. May ask one clarifying question if ambiguous.
-3. Proposes title, label, milestone, and (for features) a spec stub path.
-4. Owner acks or adjusts.
-5. Agent files the issue and optionally creates the spec stub.
+Two-dispatch shape:
+
+1. The slash command dispatches a recon subagent (forked context). It reads any `prompts: [...]` files, gathers repo context, classifies, and writes a draft body to `/tmp/capture-<slug>.md`.
+2. The recon subagent's output appears in the chat as a proposal (title, kind, label, milestone, bodyPath).
+3. The owner acks or adjusts in the main chat.
+4. The main orchestrator dispatches a filing subagent on ack (or via the `subagent` tool directly) that shells out `linear issue create --description-file /tmp/capture-<slug>.md`.
+
+Why two dispatches instead of one long-lived subagent: keeps the recon's grep/Read/`linear project list` output out of the orchestrator context. Only the proposal text and the final ABNL-NN survive.
 
 ### `/capture:async` (non-interactive)
 
-1. Agent classifies immediately, no questions asked.
-2. Files the issue with the `needs-triage` label.
-3. Conservative scope — everything the agent *could not* create autonomously becomes a checklist item in the issue body for `/capture:triage` to action.
+1. Single forked dispatch with `async: true`.
+2. Subagent classifies, writes the body to `/tmp/capture-<slug>.md`, files via `linear issue create --description-file ... --label "<classified>" --label "needs-triage"`.
+3. Returns the ABNL-NN URL.
 
-Conservative rules the async agent always follows:
+Conservative rules the async subagent always follows:
 - Never creates labels that don't exist in config.
 - Never creates named milestones (only the rolling Tech Debt one is allowed, because it's deterministic and reversible).
 - Never creates spec stub files.
+- Always adds the `needs-triage` label.
 
 ### `/capture:triage`
+
+Known gap in v0.2: still uses `pi.sendUserMessage()` (orchestrator-context, like v0.1). Triage is an interactive queue walk requiring bidirectional back-and-forth per issue. Migrating to forked dispatch needs intercom bridge support (v0.3).
 
 Fetches all issues labelled `needs-triage` and walks them one by one. For each, the owner chooses: **accept**, **rename**, **relabel**, **milestone**, **stub-spec**, **duplicate**, or **skip**.
 
