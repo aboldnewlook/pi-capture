@@ -35,7 +35,14 @@ export function loadConfig(cwd: string): ConfigLoadResult | ConfigLoadError {
     };
   }
 
-  return { config: normalize(raw as Record<string, unknown>), configPath };
+  try {
+    return { config: normalize(raw as Record<string, unknown>), configPath };
+  } catch (e) {
+    return {
+      error: `Invalid config in ${CONFIG_PATH}: ${e instanceof Error ? e.message : String(e)}`,
+      hint: "Check the JSON against the schema at https://github.com/aboldnewlook/pi-capture/blob/main/pi-capture.schema.json",
+    };
+  }
 }
 
 function normalize(raw: Record<string, unknown>): CaptureConfig {

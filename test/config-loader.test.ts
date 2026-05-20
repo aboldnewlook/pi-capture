@@ -44,11 +44,8 @@ test("returns error when backend is missing", () => {
   withTempDir((dir) => {
     writeConfig(dir, { linear: { initiative: "abc123" } });
     const result = loadConfig(dir);
-    assert.ok(isConfigError(result) || ("config" in result && result.config));
-    // normalize() throws for unsupported backend, loadConfig returns error
-    if (!isConfigError(result)) {
-      assert.fail("Expected config error for missing backend");
-    }
+    assert.ok(isConfigError(result), "Expected config error for missing backend");
+    assert.ok(result.error.includes("Invalid config"));
   });
 });
 
