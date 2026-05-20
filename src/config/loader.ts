@@ -35,14 +35,29 @@ export function loadConfig(cwd: string): ConfigLoadResult | ConfigLoadError {
     };
   }
 
+  let config: ReturnType<typeof normalize>;
   try {
-    return { config: normalize(raw as Record<string, unknown>), configPath };
+    config = normalize(raw as Record<string, unknown>);
   } catch (e) {
     return {
       error: `Invalid config in ${CONFIG_PATH}: ${e instanceof Error ? e.message : String(e)}`,
       hint: "Check the JSON against the schema at https://github.com/aboldnewlook/pi-capture/blob/main/pi-capture.schema.json",
     };
   }
+
+  // Validate prompts paths exist — fail loudly so misconfigured repos are caught at
+  // extension load rather than silently producing prompts without guidance.
+  for (const promptPath of config.prompts) {
+    const abs = path.resolve(cwd, promptPath);
+    if (!fs.existsSync(abs)) {
+      return {
+        error: `Prompts file not found: ${promptPath} (resolved: ${abs})`,
+        hint: `Create the file or remove it from the prompts array in ${CONFIG_PATH}`,
+      };
+    }
+  }
+
+  return { config, configPath };
 }
 
 function normalize(raw: Record<string, unknown>): CaptureConfig {
@@ -95,6 +110,13 @@ function normalize(raw: Record<string, unknown>): CaptureConfig {
     }
   }
 
+  const prompts = Array.isArray(raw.prompts)
+    ? (raw.prompts as unknown[]).map((p, i) => {
+        if (typeof p !== "string") throw new Error(`prompts[${i}] must be a string`);
+        return p;
+      })
+    : [];
+
   return {
     backend: "linear-cli",
     linear: {
@@ -104,12 +126,7 @@ function normalize(raw: Record<string, unknown>): CaptureConfig {
       techDebtMilestone: typeof lin.techDebtMilestone === "string" ? lin.techDebtMilestone : "Tech Debt Y{YY} Q{Q}",
       labels,
     },
-    prompts: Array.isArray(raw.prompts)
-      ? (raw.prompts as unknown[]).map((p, i) => {
-          if (typeof p !== "string") throw new Error(`prompts[${i}] must be a string`);
-          return p;
-        })
-      : [],
+    prompts,
     policies,
   };
 }

@@ -11,9 +11,14 @@ declare module "@earendil-works/pi-coding-agent" {
     description: string;
     handler: (args: string, ctx: CommandContext) => void | Promise<void>;
   }
+  interface EventBus {
+    emit(channel: string, data: unknown): void;
+    on(channel: string, handler: (data: unknown) => void): () => void;
+  }
   interface ExtensionAPI {
     registerCommand(name: string, reg: CommandRegistration): void;
     sendUserMessage(text: string): void;
+    events: EventBus;
   }
-  export type { ExtensionAPI, CommandContext, UIContext };
+  export type { ExtensionAPI, CommandContext, UIContext, EventBus };
 }

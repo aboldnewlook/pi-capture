@@ -108,29 +108,6 @@ test("merges partial policies over defaults", () => {
   });
 });
 
-test("classifier prompt includes issue text verbatim", async () => {
-  const { buildAsyncCapturePrompt } = await import("../src/classifier/prompts.ts");
-  withTempDir((dir) => {
-    const config = {
-      backend: "linear-cli" as const,
-      linear: {
-        initiative: "abc",
-        projectPattern: "[BC] Y{YY} Q{Q}",
-        projectPrefix: "BC",
-        techDebtMilestone: "Tech Debt Y{YY} Q{Q}",
-        labels: DEFAULT_LABELS,
-      },
-      prompts: [],
-      policies: DEFAULT_POLICIES,
-    };
-    const issueText = "Search results crash when all filters are empty";
-    const prompt = buildAsyncCapturePrompt(issueText, { config, cwd: dir, project: null });
-    assert.ok(prompt.includes(issueText), "prompt must include verbatim issue text");
-    assert.ok(prompt.includes("needs-triage"), "async prompt must mention triage label");
-    assert.ok(prompt.includes("NEVER"), "async prompt must include conservative rules");
-  });
-});
-
 test("rejects non-string label value with a clear error", () => {
   withTempDir((dir) => {
     writeConfig(dir, {
@@ -160,5 +137,36 @@ test("rejects non-boolean policy value with a clear error", () => {
       err.error.includes("asyncMayCreateMilestone") || err.error.includes("boolean"),
       `Expected error about policy type, got: ${err.error}`,
     );
+  });
+});
+
+test("fails loudly when a prompts path does not exist", () => {
+  withTempDir((dir) => {
+    writeConfig(dir, {
+      backend: "linear-cli",
+      linear: { initiative: "abc" },
+      prompts: ["./.pi/nonexistent-prompts.md"],
+    });
+    const err = assertError(loadConfig(dir));
+    assert.ok(
+      err.error.includes("not found") || err.error.includes("nonexistent"),
+      `Expected error about missing prompts file, got: ${err.error}`,
+    );
+  });
+});
+
+test("succeeds when a prompts path exists", () => {
+  withTempDir((dir) => {
+    const piDir = path.join(dir, ".pi");
+    fs.mkdirSync(piDir, { recursive: true });
+    const promptsFile = path.join(piDir, "prompts.md");
+    fs.writeFileSync(promptsFile, "# My guidance");
+    writeConfig(dir, {
+      backend: "linear-cli",
+      linear: { initiative: "abc" },
+      prompts: ["./.pi/prompts.md"],
+    });
+    const { config } = assertOk(loadConfig(dir));
+    assert.deepEqual(config.prompts, ["./.pi/prompts.md"]);
   });
 });

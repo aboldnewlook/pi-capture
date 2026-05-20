@@ -1,7 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, isConfigError } from "../config/loader.ts";
 import type { CaptureConfig } from "../config/types.ts";
-import { LinearCliAdapter } from "../adapter/linear-cli.ts";
 import {
   buildCapturePrompt,
   buildAsyncCapturePrompt,
@@ -9,22 +9,35 @@ import {
   type PromptContext,
 } from "../classifier/prompts.ts";
 
-async function resolveContext(config: CaptureConfig, cwd: string): Promise<PromptContext> {
-  let project = null;
-  if (config.backend === "linear-cli") {
-    const adapter = new LinearCliAdapter(config); // throws loudly if CLI missing or unauthed
-    try {
-      project = await adapter.resolveProject();
-    } catch {
-      // project resolution is non-fatal — agent falls back to projectPattern in prompt
-    }
-  }
-  return { config, cwd, project };
+// Event names from pi-subagents slash bridge.
+// Used as strings to avoid a hard dependency on pi-subagents.
+const SLASH_SUBAGENT_REQUEST_EVENT = "subagent:slash:request";
+
+function makePromptContext(config: CaptureConfig, cwd: string): PromptContext {
+  return { config, cwd };
+}
+
+function dispatchSubagent(
+  pi: ExtensionAPI,
+  task: string,
+  opts: { async: boolean; model?: string },
+): void {
+  const requestId = randomUUID();
+  pi.events.emit(SLASH_SUBAGENT_REQUEST_EVENT, {
+    requestId,
+    params: {
+      agent: "worker",
+      task,
+      context: "fresh",
+      async: opts.async,
+      model: opts.model ?? "claude-sonnet-4-6",
+    },
+  });
 }
 
 export default function registerCaptureExtension(pi: ExtensionAPI): void {
   pi.registerCommand("capture", {
-    description: "Interactively classify and file an issue to Linear: /capture <issue text>",
+    description: "Classify and propose a Linear issue (recon runs in forked context): /capture <issue text>",
     handler: async (args, ctx) => {
       const issueText = args.trim();
       if (!issueText) {
@@ -38,13 +51,13 @@ export default function registerCaptureExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      const promptCtx = await resolveContext(result.config, ctx.cwd);
-      pi.sendUserMessage(buildCapturePrompt(issueText, promptCtx));
+      const promptCtx = makePromptContext(result.config, ctx.cwd);
+      dispatchSubagent(pi, buildCapturePrompt(issueText, promptCtx), { async: false });
     },
   });
 
   pi.registerCommand("capture:async", {
-    description: "Non-interactively file an issue to Linear (tagged needs-triage): /capture:async <issue text>",
+    description: "Non-interactively classify and file an issue (fully async, tags needs-triage): /capture:async <issue text>",
     handler: async (args, ctx) => {
       const issueText = args.trim();
       if (!issueText) {
@@ -58,11 +71,15 @@ export default function registerCaptureExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      const promptCtx = await resolveContext(result.config, ctx.cwd);
-      pi.sendUserMessage(buildAsyncCapturePrompt(issueText, promptCtx));
+      const promptCtx = makePromptContext(result.config, ctx.cwd);
+      dispatchSubagent(pi, buildAsyncCapturePrompt(issueText, promptCtx), { async: true });
     },
   });
 
+  // /capture:triage keeps sendUserMessage for v0.2 — triage is an interactive
+  // queue walk that requires bidirectional back-and-forth per issue. Migrating
+  // it to a forked subagent context requires per-issue dispatch with intercom
+  // bridge support, which is v0.3 work.
   pi.registerCommand("capture:triage", {
     description: "Walk the needs-triage Linear issue queue: /capture:triage",
     handler: async (_args, ctx) => {
@@ -72,7 +89,7 @@ export default function registerCaptureExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      const promptCtx = await resolveContext(result.config, ctx.cwd);
+      const promptCtx = makePromptContext(result.config, ctx.cwd);
       pi.sendUserMessage(buildTriagePrompt(promptCtx));
     },
   });
